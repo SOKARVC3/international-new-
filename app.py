@@ -5,9 +5,13 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+AUDIO_FILE_ID = os.environ.get("AUDIO_FILE_ID", "")
+
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 WEBHOOK_URL = "https://international-new.vercel.app/webhook"
+
+REPLY_TEXT = "اسمع وأي استفسار بخصوص الشغل أنا معاك/ي"
 
 
 def tg(method, data):
@@ -50,32 +54,47 @@ def webhook():
     if message:
         chat_id = message["chat"]["id"]
 
-        # Voice message
-        if message.get("voice"):
-            file_id = message["voice"]["file_id"]
-
-            tg("sendMessage", {
-                "chat_id": chat_id,
-                "text": f"VOICE_FILE_ID:\n{file_id}"
-            })
-
-            return jsonify({"ok": True}), 200
-
-        # Audio file
-        if message.get("audio"):
-            file_id = message["audio"]["file_id"]
-
-            tg("sendMessage", {
-                "chat_id": chat_id,
-                "text": f"AUDIO_FILE_ID:\n{file_id}"
-            })
-
-            return jsonify({"ok": True}), 200
-
         tg("sendMessage", {
             "chat_id": chat_id,
-            "text": "ابعت التسجيل الصوتي هنا."
+            "text": REPLY_TEXT
         })
+
+        if AUDIO_FILE_ID:
+            tg("sendAudio", {
+                "chat_id": chat_id,
+                "audio": AUDIO_FILE_ID
+            })
+
+        return jsonify({"ok": True}), 200
+
+    business_message = update.get("business_message")
+
+    if business_message:
+        chat_id = business_message["chat"]["id"]
+        business_connection_id = business_message.get(
+            "business_connection_id"
+        )
+
+        text_data = {
+            "chat_id": chat_id,
+            "text": REPLY_TEXT
+        }
+
+        if business_connection_id:
+            text_data["business_connection_id"] = business_connection_id
+
+        tg("sendMessage", text_data)
+
+        if AUDIO_FILE_ID:
+            audio_data = {
+                "chat_id": chat_id,
+                "audio": AUDIO_FILE_ID
+            }
+
+            if business_connection_id:
+                audio_data["business_connection_id"] = business_connection_id
+
+            tg("sendAudio", audio_data)
 
         return jsonify({"ok": True}), 200
 
