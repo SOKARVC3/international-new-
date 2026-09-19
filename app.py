@@ -5,12 +5,7 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-VOICE_FILE_ID = os.environ.get("VOICE_FILE_ID", "")
-VERCEL_URL = os.environ.get("VERCEL_URL", "")
-
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
-
-REPLY_TEXT = "اسمع، وأي استفسار بخصوص الشغل أنا معاك/ي"
 
 
 def tg(method, data):
@@ -35,6 +30,36 @@ def home():
 def webhook():
     update = request.get_json(silent=True) or {}
 
+    message = update.get("message")
+
+    if message:
+        chat_id = message["chat"]["id"]
+
+        # لو الرسالة تسجيل صوتي
+        if message.get("voice"):
+            file_id = message["voice"]["file_id"]
+
+            tg("sendMessage", {
+                "chat_id": chat_id,
+                "text": f"VOICE_FILE_ID:\n{file_id}"
+            })
+
+            return jsonify({"ok": True}), 200
+
+        # لو أي رسالة عادية
+        tg("sendMessage", {
+            "chat_id": chat_id,
+            "text": "ابعت التسجيل الصوتي هنا عشان أطلع الـ File ID."
+        })
+
+        return jsonify({"ok": True}), 200
+
+    return jsonify({"ok": True}), 200
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
     # =========================
     # رسائل التليجرام العادية
     # =========================
