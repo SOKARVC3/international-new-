@@ -68,6 +68,194 @@ def redis_command(command, *args):
         return None
 
 
+def is_first_message(chat_id):
+    # مفتاح جديد تمامًا حتى لا يتعارض مع التجارب القديمة
+    key = f"welcome:v2:{chat_id}"
+
+    result = redis_command(
+        "set",
+        key,
+        "1",
+        "nx"
+    )
+
+    print("CLAIM RESULT:", result)
+
+    if result and result.get("result") == "OK":
+        return True
+
+    return False
+
+
+def remove_user(chat_id):
+    key = f"welcome:v2:{chat_id}"
+    redis_command("del", key)
+
+
+def send_welcome(chat_id, business_connection_id=None):
+
+    data = {
+        "chat_id": chat_id,
+        "text": REPLY_TEXT
+    }
+
+    if business_connection_id:
+        data["business_connection_id"] = business_connection_id
+
+    result = tg("sendMessage", data)
+
+    if not result.get("ok"):
+        print("MESSAGE FAILED:", result)
+
+        remove_user(chat_id)
+
+        return False
+
+    print("MESSAGE SENT:", chat_id)
+
+    if AUDIO_FILE_ID:
+
+        audio_data = {
+            "chat_id": chat_id,
+            "audio": AUDIO_FILE_ID
+        }
+
+        if business_connection_id:
+            audio_data["business_connection_id"] = business_connection_id
+
+        audio_result = tg(
+            "sendAudio",
+            audio_data
+        )
+
+        print("AUDIO RESULT:", audio_result)
+
+    return True
+
+
+@app.route("/", methods=["GET"])
+def home():
+
+    if BOT_TOKEN:
+        tg(
+            "setWebhook",
+            {
+                "url": WEBHOOK_URL,
+                "allowed_updates": [
+                    "message",
+                    "business_message"
+                ]
+            }
+        )
+
+    return "International New Bot is running", 200
+
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+
+    update = request.get_json(silent=True) or {}
+
+    print("UPDATE RECEIVED:", update)
+
+    message = update.get("message")
+    business_message = update.get("business_message")
+
+    if message:
+
+        chat_id = message["chat"]["id"]
+
+        print("NORMAL MESSAGE FROM:", chat_id)
+
+        if not is_first_message(chat_id):
+
+            print("ALREADY SENT TO:", chat_id)
+
+            return jsonify({
+                "ok": True,
+                "status": "already_sent"
+            }), 200
+
+        send_welcome(chat_id)
+
+        return jsonify({
+            "ok": True,
+            "status": "sent"
+        }), 200
+
+
+    if business_message:
+
+        chat_id = business_message["chat"]["id"]
+
+        business_connection_id = business_message.get(
+            "business_connection_id"
+        )
+
+        print(
+            "BUSINESS MESSAGE FROM:",
+            chat_id,
+            business_connection_id
+        )
+
+        if not is_first_message(chat_id):
+
+            print("ALREADY SENT TO:", chat_id)
+
+            return jsonify({
+                "ok": True,
+                "status": "already_sent"
+            }), 200
+
+        send_welcome(
+            chat_id,
+            business_connection_id
+        )
+
+        return jsonify({
+            "ok": True,
+            "status": "sent"
+        }), 200
+
+
+    print("UNKNOWN UPDATE")
+
+    return jsonify({
+        "ok": True
+    }), 200        return {}
+
+
+def redis_command(command, *args):
+    if not REDIS_URL or not REDIS_TOKEN:
+        print("REDIS CONFIG MISSING")
+        return None
+
+    try:
+        url = f"{REDIS_URL}/{command}"
+
+        if args:
+            url += "/" + "/".join(
+                quote(str(x), safe="")
+                for x in args
+            )
+
+        r = requests.post(
+            url,
+            headers={
+                "Authorization": f"Bearer {REDIS_TOKEN}"
+            },
+            timeout=10
+        )
+
+        print("REDIS:", command, r.status_code, r.text)
+
+        return r.json()
+
+    except Exception as e:
+        print("REDIS ERROR:", repr(e))
+        return None
+
+
 def claim_user(chat_id):
     """
     يحجز الشخص مرة واحدة فقط.
