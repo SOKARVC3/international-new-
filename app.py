@@ -1,89 +1,128 @@
 import os
 import requests
-from flask import Flask, request
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-BOT_TOKEN = os.environ["BOT_TOKEN"]
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 VOICE_FILE_ID = os.environ.get("VOICE_FILE_ID", "")
-RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "")
+VERCEL_URL = os.environ.get("VERCEL_URL", "")
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
+REPLY_TEXT = "اسمع، وأي استفسار بخصوص الشغل أنا معاك/ي"
+
 
 def tg(method, data):
-    return requests.post(
-        f"{API}/{method}",
-        data=data,
-        timeout=30
-    )
+    try:
+        response = requests.post(
+            f"{API}/{method}",
+            json=data,
+            timeout=30
+        )
+        return response.json()
+    except Exception as e:
+        print("Telegram Error:", e)
+        return {}
 
 
 @app.route("/", methods=["GET"])
 def home():
-    return "International New Bot is running"
+    return "International New Bot is running", 200
 
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     update = request.get_json(silent=True) or {}
 
-    # لو بعت التسجيل الصوتي للبوت نفسه
-    msg = update.get("message")
+    # =========================
+    # رسائل التليجرام العادية
+    # =========================
+    message = update.get("message")
 
-    if msg and msg.get("voice"):
-        file_id = msg["voice"]["file_id"]
+    if message:
+        chat_id = message["chat"]["id"]
 
+        # إرسال الرسالة الكتابية
         tg("sendMessage", {
-            "chat_id": msg["chat"]["id"],
-            "text": f"تم استلام التسجيل.\nVOICE_FILE_ID:\n{file_id}"
-        })
-
-        return "OK"
-
-    # رسالة جديدة على حسابك الشخصي المرتبط بالبوت
-    business_msg = update.get("business_message")
-
-    if business_msg:
-        business_connection_id = business_msg.get(
-            "business_connection_id"
-        )
-
-        chat_id = business_msg["chat"]["id"]
-
-        # الرسالة الكتابية
-        tg("sendMessage", {
-            "business_connection_id": business_connection_id,
             "chat_id": chat_id,
-            "text": "اسمع، وأي استفسار بخصوص الشغل أنا معاك/ي."
+            "text": REPLY_TEXT
         })
 
-        # التسجيل الصوتي
+        # إرسال التسجيل الصوتي
         if VOICE_FILE_ID:
             tg("sendVoice", {
-                "business_connection_id": business_connection_id,
                 "chat_id": chat_id,
                 "voice": VOICE_FILE_ID
             })
 
-    return "OK"
+        return jsonify({"ok": True}), 200
+
+    # =========================
+    # رسائل Telegram Business
+    # =========================
+    business_message = update.get("business_message")
+
+    if business_message:
+        chat_id = business_message["chat"]["id"]
+        business_connection_id = business_message.get(
+            "business_connection_id"
+        )
+
+        # إرسال الرسالة الكتابية
+        text_data = {
+            "chat_id": chat_id,
+            "text": REPLY_TEXT
+        }
+
+        if business_connection_id:
+            text_data["business_connection_id"] = business_connection_id
+
+        tg("sendMessage", text_data)
+
+        # إرسال التسجيل الصوتي
+        if VOICE_FILE_ID:
+            voice_data = {
+                "chat_id": chat_id,
+                "voice": VOICE_FILE_ID
+            }
+
+            if business_connection_id:
+                voice_data["business_connection_id"] = business_connection_id
+
+            tg("sendVoice", voice_data)
+
+        return jsonify({"ok": True}), 200
+
+    return jsonify({"ok": True}), 200
 
 
 def set_webhook():
-    if RENDER_URL:
-        webhook_url = RENDER_URL.rstrip("/") + "/webhook"
+    if not BOT_TOKEN or not VERCEL_URL:
+        print("BOT_TOKEN or VERCEL_URL is missing")
+        return
 
-        tg("setWebhook", {
-            "url": webhook_url,
-            "allowed_updates": '["message","business_message"]'
-        })
+    webhook_url = f"https://{VERCEL_URL}/webhook"
+
+    result = tg("setWebhook", {
+        "url": webhook_url,
+        "allowed_updates": [
+            "message",
+            "business_message"
+        ]
+    })
+
+    print("Webhook:", result)
+
+
+# Vercel يشغل Flask مباشرة
+if VERCEL_URL:
+    set_webhook()
 
 
 if __name__ == "__main__":
-    set_webhook()
-
     port = int(os.environ.get("PORT", 10000))
     app.run(
         host="0.0.0.0",
         port=port
-)
+    )
